@@ -51,22 +51,49 @@ app.use(express.json({ limit: "100kb" }));
 // 2. DATABASE — AIVEN MYSQL WITH SSL
 // ======================================================
 
-const localCertificatePath = path.join(
-  __dirname,
-  "certs",
-  "ca.pem"
-);
+// Render: Read the certificate from DB_SSL_CA_BASE64.
+// Local computer: Read backend/certs/ca.pem.
+// Render Secret File: Also supported as a fallback.
 
-const renderCertificatePath = "/etc/secrets/ca.pem";
+let caCertificate;
 
-const certificatePath = fs.existsSync(localCertificatePath)
-  ? localCertificatePath
-  : renderCertificatePath;
+const encodedCertificate = process.env.DB_SSL_CA_BASE64;
 
-if (!fs.existsSync(certificatePath)) {
-  throw new Error(
-    `Aiven CA certificate not found at: ${certificatePath}`
+if (encodedCertificate && encodedCertificate.trim()) {
+  caCertificate = Buffer.from(
+    encodedCertificate.trim(),
+    "base64"
   );
+
+  if (!caCertificate.length) {
+    throw new Error("Invalid DB_SSL_CA_BASE64 certificate.");
+  }
+
+  console.log(
+    "Using Aiven CA certificate from environment variable."
+  );
+} else {
+  const localCertificatePath = path.join(
+    __dirname,
+    "certs",
+    "ca.pem"
+  );
+
+  const renderCertificatePath = "/etc/secrets/ca.pem";
+
+  const certificatePath = fs.existsSync(localCertificatePath)
+    ? localCertificatePath
+    : renderCertificatePath;
+
+  if (!fs.existsSync(certificatePath)) {
+    throw new Error(
+      "Aiven CA certificate not found. Set DB_SSL_CA_BASE64 or provide ca.pem."
+    );
+  }
+
+  caCertificate = fs.readFileSync(certificatePath);
+
+  console.log("Using Aiven CA certificate from file.");
 }
 
 const pool = mysql.createPool({
@@ -84,7 +111,7 @@ const pool = mysql.createPool({
   timezone: "Z",
 
   ssl: {
-    ca: fs.readFileSync(certificatePath),
+    ca: caCertificate,
     rejectUnauthorized: true,
   },
 });
