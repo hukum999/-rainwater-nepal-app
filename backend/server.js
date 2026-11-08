@@ -8,11 +8,13 @@ const mysql = require("mysql2");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 
 const PORT = Number(process.env.PORT) || 5000;
-const DB_NAME = process.env.DB_NAME || "rainwater_nepal";
+const DB_NAME = process.env.DB_NAME || "defaultdb";
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:5173";
 
@@ -46,20 +48,45 @@ app.use(
 app.use(express.json({ limit: "100kb" }));
 
 // ======================================================
-// 2. DATABASE
+// 2. DATABASE — AIVEN MYSQL WITH SSL
 // ======================================================
 
+const localCertificatePath = path.join(
+  __dirname,
+  "certs",
+  "ca.pem"
+);
+
+const renderCertificatePath = "/etc/secrets/ca.pem";
+
+const certificatePath = fs.existsSync(localCertificatePath)
+  ? localCertificatePath
+  : renderCertificatePath;
+
+if (!fs.existsSync(certificatePath)) {
+  throw new Error(
+    `Aiven CA certificate not found at: ${certificatePath}`
+  );
+}
+
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
   database: DB_NAME,
-  port: Number(process.env.DB_PORT) || 3306,
+  port: Number(process.env.DB_PORT),
+
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+
   charset: "utf8mb4",
   timezone: "Z",
+
+  ssl: {
+    ca: fs.readFileSync(certificatePath),
+    rejectUnauthorized: true,
+  },
 });
 
 const db = pool.promise();
@@ -881,7 +908,7 @@ async function startServer() {
     );
 
     console.error(
-      "Check backend/.env and make sure MySQL is running."
+      "Check backend/.env, Aiven connection details, and CA certificate."
     );
 
     process.exitCode = 1;
