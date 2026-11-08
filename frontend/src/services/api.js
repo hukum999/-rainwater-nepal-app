@@ -5,7 +5,10 @@
 // ======================================================
 
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000"
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV
+    ? "http://localhost:5000"
+    : "https://rainwater-nepal-app.onrender.com")
 ).replace(/\/+$/, "");
 
 const TOKEN_KEY = "rainwater_token";
@@ -44,14 +47,12 @@ async function apiRequest(path, options = {}) {
     ...options.headers,
   };
 
-  // Attach the saved authentication token when available.
   const token = getAuthToken();
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  // Set JSON content type only when sending a body.
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
@@ -66,11 +67,10 @@ async function apiRequest(path, options = {}) {
   } catch {
     throw new Error(
       "Cannot connect to the Rainwater Nepal server. " +
-        "Please check that the backend is running."
+      "Please check your internet connection or backend server."
     );
   }
 
-  // Read the response without assuming every response is JSON.
   const contentType = response.headers.get("content-type") || "";
   let data = null;
 
@@ -88,8 +88,8 @@ async function apiRequest(path, options = {}) {
   if (!response.ok) {
     throw new Error(
       data?.error ||
-        data?.message ||
-        `Request failed with status ${response.status}.`
+      data?.message ||
+      `Request failed with status ${response.status}.`
     );
   }
 
