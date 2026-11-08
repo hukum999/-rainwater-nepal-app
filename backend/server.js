@@ -15,8 +15,18 @@ const app = express();
 
 const PORT = Number(process.env.PORT) || 5000;
 const DB_NAME = process.env.DB_NAME || "defaultdb";
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || "http://localhost:5173";
+
+// Allow both local development and the published GitHub Pages website.
+const FRONTEND_URLS = [
+  "http://localhost:5173",
+  "https://hukum999.github.io",
+  ...(process.env.FRONTEND_URL || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
+const ALLOWED_ORIGINS = [...new Set(FRONTEND_URLS)];
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "2h";
@@ -39,7 +49,7 @@ app.disable("x-powered-by");
 
 app.use(
   cors({
-    origin: FRONTEND_URL.split(",").map((origin) => origin.trim()),
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -50,10 +60,6 @@ app.use(express.json({ limit: "100kb" }));
 // ======================================================
 // 2. DATABASE — AIVEN MYSQL WITH SSL
 // ======================================================
-
-// Render: Read the certificate from DB_SSL_CA_BASE64.
-// Local computer: Read backend/certs/ca.pem.
-// Render Secret File: Also supported as a fallback.
 
 let caCertificate;
 
@@ -924,6 +930,8 @@ async function startServer() {
     await db.query("SELECT 1");
 
     console.log(`Connected to ${DB_NAME} database!`);
+
+    console.log("Allowed frontend origins:", ALLOWED_ORIGINS);
 
     app.listen(PORT, () => {
       console.log(`Server running at http://localhost:${PORT}`);
