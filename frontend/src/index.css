@@ -916,3 +916,34 @@ td { color: #41566b; }
     width: 100%;
   }
 }
+
+.signup-switch {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary, #64748b);
+}
+
+.signup-switch button {
+  background: none;
+  border: none;
+  color: var(--primary, #16845b);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: inherit;
+  padding: 4px;
+}
+
+.signup-switch button:hover {
+  text-decoration: underline;
+}
+
+.login-spinner {
+  animation: login-spin 1s linear infinite;
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

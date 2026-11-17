@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import {
   LockKeyhole,
@@ -6,9 +7,13 @@ import {
   Droplets,
   LoaderCircle,
 } from "lucide-react";
+
 import { apiPost, setAuthToken } from "../services/api";
 
-export default function Login({ onLoginSuccess }) {
+export default function Login({
+  onLoginSuccess,
+  onNavigateToSignup,
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -59,7 +64,9 @@ export default function Login({ onLoginSuccess }) {
         onLoginSuccess(response.user);
       }
     } catch (err) {
-      setError(err.message || "Unable to log in. Please try again.");
+      setError(
+        err.message || "Unable to log in. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -173,6 +180,17 @@ export default function Login({ onLoginSuccess }) {
           <span>
             Your password is verified securely by the backend.
           </span>
+        </div>
+
+        <div className="signup-switch">
+          Don't have an account?{" "}
+          <button
+            type="button"
+            onClick={onNavigateToSignup}
+            disabled={loading}
+          >
+            Create Account
+          </button>
         </div>
       </section>
     </>

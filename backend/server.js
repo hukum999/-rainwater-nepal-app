@@ -296,7 +296,140 @@ app.get("/", (req, res) => {
 });
 
 // ======================================================
-// 6. LOGIN
+// 6. REGISTER NEW USER
+// ======================================================
+
+app.post(
+  "/api/auth/register",
+  asyncRoute(async (req, res) => {
+    const { name, email, password } = req.body || {};
+
+    const cleanName =
+      typeof name === "string" ? name.trim() : "";
+
+    const cleanEmail =
+      typeof email === "string" ? email.trim() : "";
+
+    if (!cleanName || !cleanEmail || !password) {
+      return res.status(400).json({
+        error: "Name, email and password are required.",
+      });
+    }
+
+    if (
+      cleanName.length > 150 ||
+      cleanEmail.length > 150 ||
+      typeof password !== "string" ||
+      password.length < 8 ||
+      password.length > 1024
+    ) {
+      return res.status(400).json({
+        error: "Please check your details. Password must be at least 8 characters.",
+      });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({
+        error: "Please enter a valid email address.",
+      });
+    }
+
+    const connection = await db.getConnection();
+    const lockName = "rainwater_users_registration";
+    let lockAcquired = false;
+    let transactionStarted = false;
+
+    try {
+      const [lockRows] = await connection.query(
+        "SELECT GET_LOCK(?, 10) AS acquired",
+        [lockName]
+      );
+
+      if (Number(lockRows[0]?.acquired) !== 1) {
+        return res.status(503).json({
+          error: "Registration is busy. Please try again.",
+        });
+      }
+
+      lockAcquired = true;
+
+      await connection.beginTransaction();
+      transactionStarted = true;
+
+      const [existingUsers] = await connection.query(
+        "SELECT user_id FROM users WHERE email = ? LIMIT 1",
+        [cleanEmail]
+      );
+
+      if (existingUsers.length > 0) {
+        await connection.rollback();
+        transactionStarted = false;
+
+        return res.status(409).json({
+          error: "An account with this email already exists. Please log in.",
+        });
+      }
+
+      const [idRows] = await connection.query(
+        "SELECT COALESCE(MAX(user_id), 0) + 1 AS next_id FROM users"
+      );
+
+      const newUserId = Number(idRows[0].next_id);
+
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      await connection.query(
+        `INSERT INTO users (user_id, name, email, password_hash)
+         VALUES (?, ?, ?, ?)`,
+        [newUserId, cleanName, cleanEmail, passwordHash]
+      );
+
+      await connection.commit();
+      transactionStarted = false;
+
+      const token = jwt.sign(
+        { userId: newUserId },
+        JWT_SECRET,
+        {
+          expiresIn: JWT_EXPIRES_IN,
+          subject: String(newUserId),
+        }
+      );
+
+      return res.status(201).json({
+        message: "Account created successfully.",
+        token,
+        user: {
+          user_id: newUserId,
+          name: cleanName,
+          email: cleanEmail,
+        },
+      });
+    } catch (error) {
+      if (transactionStarted) {
+        await connection.rollback();
+      }
+
+      throw error;
+    } finally {
+      if (lockAcquired) {
+        try {
+          await connection.query(
+            "SELECT RELEASE_LOCK(?)",
+            [lockName]
+          );
+        } catch (releaseError) {
+          console.error("Could not release registration lock.");
+        }
+      }
+
+      connection.release();
+    }
+  })
+);
+
+// ======================================================
+// 7. LOGIN
 // ======================================================
 
 app.post(

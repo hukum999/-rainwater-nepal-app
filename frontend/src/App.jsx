@@ -27,6 +27,7 @@ import WaterRecords from "./pages/WaterRecords";
 import Storage from "./pages/Storage";
 import Reports from "./pages/Reports";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 
 // ======================================================
 // PUBLIC NAVIGATION
@@ -327,13 +328,23 @@ export default function App() {
 
   let pageContent;
 
-  if (activePage === "Login") {
-    pageContent = (
-      <Login onLoginSuccess={handleLoginSuccess} />
-    );
-  } else if (!isAuthenticated) {
-    pageContent = renderPublicPage();
-  } else {
+ if (activePage === "Login") {
+  pageContent = (
+    <Login
+      onLoginSuccess={handleLoginSuccess}
+      onNavigateToSignup={() => setActivePage("Signup")}
+    />
+  );
+} else if (activePage === "Signup") {
+  pageContent = (
+    <Signup
+      onSignupSuccess={handleLoginSuccess}
+      onNavigateToLogin={() => setActivePage("Login")}
+    />
+  );
+} else if (!isAuthenticated) {
+  pageContent = renderPublicPage();
+} else {
     // Authenticated users can use private pages.
     const PrivatePage = privatePages[activePage];
 
