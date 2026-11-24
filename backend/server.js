@@ -1379,7 +1379,7 @@ app.get(
       self_sufficiency_percent: selfSufficiencyPercent,
       self_sufficiency_basis:
         selfSufficiencyPercent !== null
-          ? "Total collected water / total used water × 100."
+          ? "All-time recorded collected water / all-time recorded used water × 100. This is a recorded-water ratio proxy, not demand-based self-sufficiency; records may cover different periods."
           : null,
     });
   })
