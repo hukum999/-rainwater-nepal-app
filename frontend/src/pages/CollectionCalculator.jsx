@@ -10,6 +10,7 @@ import {
   CloudRain,
 } from "lucide-react";
 import { apiGet } from "../services/api";
+import { calculateHarvestLitres } from "../utils/rainwaterMath.js";
 
 const coefficients = {
   "CGI Sheet": 0.85,
@@ -227,10 +228,12 @@ export default function CollectionCalculator() {
     }
 
     // 1 mm of rainfall over 1 m² equals 1 litre.
-    const grossVolume = roofArea * rainfallDepth;
-
-    // Estimated collection after applying roof runoff coefficient and collection efficiency.
-    const estimatedYield = grossVolume * coefficient * COLLECTION_EFFICIENCY;
+    const { grossVolume, estimatedYield } = calculateHarvestLitres(
+      roofArea,
+      rainfallDepth,
+      coefficient,
+      COLLECTION_EFFICIENCY
+    );
 
     const station = locations.find(
       (location) =>
