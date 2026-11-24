@@ -17,6 +17,9 @@ const coefficients = {
   "Clay Tile": 0.75,
 };
 
+// FR-04 / MFCODE27: collection efficiency factor applied to gross harvestable volume.
+const COLLECTION_EFFICIENCY = 0.9;
+
 const numberFormat = (value) =>
   Number(value).toLocaleString("en-US", {
     maximumFractionDigits: 2,
@@ -226,8 +229,8 @@ export default function CollectionCalculator() {
     // 1 mm of rainfall over 1 m² equals 1 litre.
     const grossVolume = roofArea * rainfallDepth;
 
-    // Estimated collection after applying the roof coefficient.
-    const estimatedYield = grossVolume * coefficient;
+    // Estimated collection after applying roof runoff coefficient and collection efficiency.
+    const estimatedYield = grossVolume * coefficient * COLLECTION_EFFICIENCY;
 
     const station = locations.find(
       (location) =>
@@ -241,6 +244,7 @@ export default function CollectionCalculator() {
       rainfall: rainfallDepth,
       material,
       coefficient,
+      efficiency: COLLECTION_EFFICIENCY,
       grossVolume,
       yield: estimatedYield,
       source: rainfallSource,
@@ -573,6 +577,10 @@ export default function CollectionCalculator() {
                       <th>Runoff coefficient</th>
                       <td>{result.coefficient.toFixed(2)}</td>
                     </tr>
+                    <tr>
+                      <th>Collection efficiency</th>
+                      <td>{Number(result.efficiency).toFixed(2)}</td>
+                    </tr>
                     {result.source === "database" && (
                       <>
                         <tr>
@@ -621,8 +629,8 @@ export default function CollectionCalculator() {
 
           <div className="notice info">
             <strong>
-              Yield (L) = Roof Area (m²) × Rainfall (mm) ×
-              Runoff Coefficient
+              Collection (L) = Roof Area (m²) × Rainfall (mm) ×
+              Runoff Coefficient × Collection Efficiency
             </strong>
           </div>
 
@@ -664,10 +672,11 @@ export default function CollectionCalculator() {
                 marginRight: 6,
               }}
             />
-            <strong>Important:</strong> The runoff coefficients are
-            project assumptions, not verified measurements from your
-            rainfall database. Confirm their values and references
-            with your teacher.
+            <strong>Important:</strong> The runoff coefficients and the
+            collection efficiency factor ({COLLECTION_EFFICIENCY.toFixed(2)})
+            are project assumptions used for estimation, not verified
+            measurements from your rainfall database. Confirm their
+            values and references with your project requirements.
           </div>
 
           <div style={{ marginTop: 20 }}>

@@ -68,6 +68,14 @@ export default function Dashboard() {
         total_collected_litres:
           rawSummary.total_collected_litres ?? 0,
         total_used_litres: rawSummary.total_used_litres ?? 0,
+        estimated_collection_litres:
+          rawSummary.estimated_collection_litres ?? null,
+        estimated_collection_basis:
+          rawSummary.estimated_collection_basis ?? "",
+        self_sufficiency_percent:
+          rawSummary.self_sufficiency_percent ?? null,
+        self_sufficiency_basis:
+          rawSummary.self_sufficiency_basis ?? "",
       });
 
       setLocations(
@@ -140,6 +148,16 @@ export default function Dashboard() {
     },
   ];
 
+  const estimatedCollectionValue = (() => {
+    const v = Number(summary.estimated_collection_litres);
+    return Number.isFinite(v) && v >= 0 ? `${formatNumber(v, 2)} L` : "—";
+  })();
+
+  const selfSufficiencyValue = (() => {
+    const v = Number(summary.self_sufficiency_percent);
+    return Number.isFinite(v) && v >= 0 ? `${formatNumber(v, 2)}%` : "—";
+  })();
+
   const userCards = [
     {
       label: "My Roofs",
@@ -156,6 +174,15 @@ export default function Dashboard() {
       color: "blue",
     },
     {
+      label: "Estimated Collection",
+      value: estimatedCollectionValue,
+      note:
+        summary.estimated_collection_basis ||
+        "Annual potential based on roof data, 90% efficiency, and 2018 avg. rainfall",
+      icon: CloudRain,
+      color: "teal",
+    },
+    {
       label: "Total Collected",
       value: `${formatNumber(summary.total_collected_litres, 2)} L`,
       note: "Water collected by your account",
@@ -168,6 +195,15 @@ export default function Dashboard() {
       note: "Water used by your account",
       icon: Waves,
       color: "purple",
+    },
+    {
+      label: "Self-Sufficiency",
+      value: selfSufficiencyValue,
+      note:
+        summary.self_sufficiency_basis ||
+        "Collected water / used water × 100 (when usage exists)",
+      icon: Activity,
+      color: "blue",
     },
   ];
 

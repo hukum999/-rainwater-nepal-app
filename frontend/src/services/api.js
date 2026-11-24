@@ -86,6 +86,21 @@ async function apiRequest(path, options = {}) {
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthToken();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("auth:expired", {
+            detail: {
+              message:
+                data?.error ||
+                "Your session has expired. Please log in again.",
+            },
+          })
+        );
+      }
+    }
+
     throw new Error(
       data?.error ||
       data?.message ||

@@ -13,6 +13,7 @@ import { apiPost, setAuthToken } from "../services/api";
 export default function Login({
   onLoginSuccess,
   onNavigateToSignup,
+  notice = "",
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -97,6 +98,12 @@ export default function Login({
             Enter your registered email and password.
           </p>
         </div>
+
+        {notice && !error && (
+          <div className="notice info" role="status">
+            {notice}
+          </div>
+        )}
 
         {error && (
           <div className="notice error" role="alert">
