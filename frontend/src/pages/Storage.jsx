@@ -198,8 +198,7 @@ export default function Storage() {
           <div>
             <h3>Configure Tank Capacity</h3>
             <p className="panel-subtitle">
-              Save your tank capacity so storage calculations and reserve
-              information can be tracked persistently.
+              Save capacity to your most recently saved roof profile. The Tank Capacity card totals capacities from all registered roof profiles.
             </p>
           </div>
           <Database size={22} />
@@ -207,7 +206,7 @@ export default function Storage() {
 
         <form onSubmit={handleSaveCapacity} className="storage-capacity-form">
           <label className="storage-starting-field">
-            <span>Tank capacity (litres)</span>
+            <span>Capacity for the primary roof profile (litres)</span>
             <input
               type="number"
               min="0.01"
