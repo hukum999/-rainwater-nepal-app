@@ -12,23 +12,11 @@ import {
 } from "lucide-react";
 
 import { apiGet, apiPost, apiPut } from "../services/api";
+import { parseCapacityLitres, calculateStorageBalance, calculateReservePercent } from "../utils/rainwaterMath.js";
 
-function parseCapacityValue(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number") {
-    return Number.isFinite(value) && value >= 0 ? value : null;
-  }
-  if (typeof value === "string") {
-    const cleaned = value.replace(/,/g, "").trim();
-    if (cleaned === "") return null;
-    const number = Number(cleaned);
-    return Number.isFinite(number) && number >= 0 ? number : null;
-  }
-  return null;
-}
 
 function formatLitres(value) {
-  const number = parseCapacityValue(value);
+  const number = parseCapacityLitres(value);
   return number !== null
     ? `${number.toLocaleString("en-US", {
         maximumFractionDigits: 2,
@@ -37,7 +25,7 @@ function formatLitres(value) {
 }
 
 function getNumericValue(value) {
-  const number = parseCapacityValue(value);
+  const number = parseCapacityLitres(value);
   return number !== null ? number : null;
 }
 
@@ -71,7 +59,7 @@ export default function Storage() {
 
       // Pre-fill capacity input from the primary roof record for editing convenience.
       const primaryRoof = nextRoofs[0];
-      const existingCapacity = parseCapacityValue(primaryRoof?.storage_tank_litres);
+      const existingCapacity = parseCapacityLitres(primaryRoof?.storage_tank_litres);
       setCapacityInput(existingCapacity !== null ? String(existingCapacity) : "");
     } catch (err) {
       setError(err.message || "Unable to load storage information.");
@@ -117,8 +105,11 @@ export default function Storage() {
   const initialVolume = getNumericValue(startingBalance);
 
   // Do not hide a negative balance: it indicates a shortfall.
-  const estimatedBalance =
-    initialVolume === null ? null : initialVolume + collected - used;
+  const estimatedBalance = calculateStorageBalance(
+    initialVolume,
+    collected,
+    used
+  );
 
   const balanceExceedsCapacity =
     estimatedBalance !== null &&
@@ -128,20 +119,17 @@ export default function Storage() {
   const hasInsufficientBalance =
     estimatedBalance !== null && estimatedBalance < 0;
 
-  const reservePercent = useMemo(() => {
-    if (!hasTankCapacity || tankCapacity <= 0 || estimatedBalance === null) {
-      return null;
-    }
-    if (estimatedBalance < 0) return 0;
-    return (estimatedBalance / tankCapacity) * 100;
-  }, [estimatedBalance, hasTankCapacity, tankCapacity]);
+  const reservePercent = useMemo(
+    () => calculateReservePercent(estimatedBalance, tankCapacity, hasTankCapacity),
+    [estimatedBalance, tankCapacity, hasTankCapacity]
+  );
 
   async function handleSaveCapacity(event) {
     event.preventDefault();
     setCapacityError("");
     setCapacityMessage("");
 
-    const parsed = parseCapacityValue(capacityInput);
+    const parsed = parseCapacityLitres(capacityInput);
     if (parsed === null || !Number.isFinite(parsed) || parsed <= 0) {
       setCapacityError("Please enter a valid tank capacity greater than zero.");
       return;
