@@ -197,11 +197,11 @@ export default function Dashboard() {
       color: "purple",
     },
     {
-      label: "Self-Sufficiency",
+      label: "Self-Sufficiency (recorded-water proxy)",
       value: selfSufficiencyValue,
       note:
         summary.self_sufficiency_basis ||
-        "Collected water / used water × 100 (when usage exists)",
+        "All-time recorded collected water / used water. This is a proxy, not household-demand-based self-sufficiency.",
       icon: Activity,
       color: "blue",
     },
