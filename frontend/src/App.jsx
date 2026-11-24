@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   LayoutDashboard,
@@ -79,6 +79,23 @@ export default function App() {
   );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
+
+  useEffect(() => {
+    function handleAuthExpired(event) {
+      clearAuthToken();
+      setIsAuthenticated(false);
+      setActivePage("Login");
+      setSidebarOpen(false);
+      setAuthNotice(
+        event?.detail?.message ||
+          "Your session has expired. Please log in again."
+      );
+    }
+
+    window.addEventListener("auth:expired", handleAuthExpired);
+    return () => window.removeEventListener("auth:expired", handleAuthExpired);
+  }, []);
 
   // ====================================================
   // LOGIN SUCCESS
@@ -90,6 +107,7 @@ export default function App() {
     setIsAuthenticated(true);
     setActivePage("Dashboard");
     setSidebarOpen(false);
+    setAuthNotice("");
   }
 
   // ====================================================
@@ -332,7 +350,11 @@ export default function App() {
   pageContent = (
     <Login
       onLoginSuccess={handleLoginSuccess}
-      onNavigateToSignup={() => setActivePage("Signup")}
+      onNavigateToSignup={() => {
+        setAuthNotice("");
+        setActivePage("Signup");
+      }}
+      notice={authNotice}
     />
   );
 } else if (activePage === "Signup") {

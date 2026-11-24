@@ -14,6 +14,14 @@ import {
 
 import { apiGet, apiPost, apiDelete } from "../services/api";
 
+const USAGE_CATEGORIES = [
+  "Toilet flushing",
+  "Laundry",
+  "Cleaning",
+  "Gardening",
+  "Livestock",
+];
+
 const today = () => {
   const date = new Date();
   const localDate = new Date(
@@ -25,6 +33,7 @@ const today = () => {
 const createInitialForm = () => ({
   record_date: today(),
   record_type: "collected",
+  usage_category: "",
   volume_litres: "",
   location_id: "",
   notes: "",
@@ -92,10 +101,20 @@ export default function WaterRecords() {
   function updateField(event) {
     const { name, value } = event.target;
 
-    setForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setForm((current) => {
+      if (name === "record_type") {
+        return {
+          ...current,
+          record_type: value,
+          usage_category: value === "used" ? current.usage_category : "",
+        };
+      }
+
+      return {
+        ...current,
+        [name]: value,
+      };
+    });
   }
 
   function clearMessages() {
@@ -120,6 +139,14 @@ export default function WaterRecords() {
       return;
     }
 
+    if (
+      form.record_type === "used" &&
+      !USAGE_CATEGORIES.includes(form.usage_category)
+    ) {
+      setError("Please select a valid usage category for used water.");
+      return;
+    }
+
     if (!Number.isFinite(volume) || volume <= 0) {
       setError("Water volume must be greater than zero.");
       return;
@@ -128,13 +155,19 @@ export default function WaterRecords() {
     setSaving(true);
 
     try {
-      await apiPost("/api/water-records", {
+      const payload = {
         record_date: form.record_date,
         record_type: form.record_type,
         volume_litres: volume,
         location_id: form.location_id || null,
         notes: form.notes.trim(),
-      });
+      };
+
+      if (form.record_type === "used") {
+        payload.usage_category = form.usage_category;
+      }
+
+      await apiPost("/api/water-records", payload);
 
       setSuccess("Water record saved successfully.");
       setForm(createInitialForm());
@@ -337,6 +370,26 @@ export default function WaterRecords() {
               </select>
             </label>
 
+            {form.record_type === "used" && (
+              <label className="water-field">
+                <span>Usage category *</span>
+                <select
+                  name="usage_category"
+                  value={form.usage_category}
+                  onChange={updateField}
+                  required
+                  disabled={saving}
+                >
+                  <option value="">Select usage category</option>
+                  {USAGE_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <label className="water-field">
               <span>Water volume (litres) *</span>
               <input
@@ -494,6 +547,7 @@ export default function WaterRecords() {
                 <tr>
                   <th>Date</th>
                   <th>Type</th>
+                  <th>Category</th>
                   <th>Volume</th>
                   <th>Location</th>
                   <th>Notes</th>
@@ -517,6 +571,7 @@ export default function WaterRecords() {
                           : "Used"}
                       </span>
                     </td>
+                    <td>{record.usage_category || "—"}</td>
                     <td className="water-volume-cell">
                       {formatVolume(record.volume_litres)} L
                     </td>

@@ -135,9 +135,38 @@ function asyncRoute(handler) {
   };
 }
 
+async function ensureSafeSchemaMigrations() {
+  // Additive, idempotent migration for FR-06 usage categories.
+  // Preserves all existing records and does not modify existing data.
+  try {
+    await db.query(
+      `ALTER TABLE water_records
+       ADD COLUMN usage_category VARCHAR(50) NULL DEFAULT NULL`
+    );
+    console.log("Schema migration: added water_records.usage_category.");
+  } catch (error) {
+    // ER_DUP_FIELDNAME = 1060 means the column already exists.
+    if (error && error.code === "ER_DUP_FIELDNAME") {
+      return;
+    }
+    console.error(
+      "Schema migration warning (usage_category):",
+      error.code || error.message
+    );
+  }
+}
+
 // ======================================================
 // 3. VALIDATION HELPERS
 // ======================================================
+
+const WATER_USAGE_CATEGORIES = [
+  "Toilet flushing",
+  "Laundry",
+  "Cleaning",
+  "Gardening",
+  "Livestock",
+];
 
 function isPositiveInteger(value) {
   return (
@@ -706,6 +735,31 @@ app.get(
 // 11. ROOFS — PRIVATE TO EACH USER
 // ======================================================
 
+function parseOptionalNonNegativeNumber(value, fieldName) {
+  if (value === undefined) return { value: undefined };
+  if (value === null || String(value).trim() === "") return { value: null };
+
+  const number = Number(String(value).replace(/,/g, "").trim());
+  if (!Number.isFinite(number) || number < 0) {
+    return { error: `${fieldName} must be a number zero or greater.` };
+  }
+  return { value: number };
+}
+
+function parseStorageTankLitres(value) {
+  if (value === undefined) return { value: undefined };
+  if (value === null || String(value).trim() === "") return { value: null };
+
+  const number = Number(String(value).replace(/,/g, "").trim());
+  if (!Number.isFinite(number) || number <= 0) {
+    return { error: "Tank capacity must be a number greater than zero." };
+  }
+  if (number > 100000000) {
+    return { error: "Tank capacity is too large." };
+  }
+  return { value: number };
+}
+
 app.get(
   "/api/roofs",
   ...authenticated,
@@ -726,6 +780,176 @@ app.get(
     );
 
     res.json(results);
+  })
+);
+
+app.post(
+  "/api/roofs",
+  ...authenticated,
+  asyncRoute(async (req, res) => {
+    const {
+      roof_area_m2,
+      roof_material,
+      runoff_coefficient,
+      storage_tank_litres,
+      notes,
+    } = req.body || {};
+
+    const areaResult = parseOptionalNonNegativeNumber(roof_area_m2, "Roof area");
+    if (areaResult.error) return res.status(400).json({ error: areaResult.error });
+    if (areaResult.value !== undefined && areaResult.value !== null && areaResult.value <= 0) {
+      return res.status(400).json({ error: "Roof area must be greater than zero when provided." });
+    }
+
+    const coefficientResult = parseOptionalNonNegativeNumber(runoff_coefficient, "Runoff coefficient");
+    if (coefficientResult.error) return res.status(400).json({ error: coefficientResult.error });
+    if (
+      coefficientResult.value !== undefined &&
+      coefficientResult.value !== null &&
+      (coefficientResult.value <= 0 || coefficientResult.value > 1)
+    ) {
+      return res.status(400).json({ error: "Runoff coefficient must be between 0 and 1." });
+    }
+
+    const capacityResult = parseStorageTankLitres(storage_tank_litres);
+    if (capacityResult.error) return res.status(400).json({ error: capacityResult.error });
+
+    let roofMaterial = null;
+    if (roof_material !== undefined && roof_material !== null && String(roof_material).trim() !== "") {
+      if (typeof roof_material !== "string" || roof_material.trim().length > 100) {
+        return res.status(400).json({ error: "Roof material must be text of at most 100 characters." });
+      }
+      roofMaterial = roof_material.trim();
+    }
+
+    let roofNotes = null;
+    if (notes !== undefined && notes !== null && String(notes).trim() !== "") {
+      if (typeof notes !== "string") {
+        return res.status(400).json({ error: "Notes must be text." });
+      }
+      roofNotes = notes.trim();
+      if (roofNotes.length > 5000) {
+        return res.status(400).json({ error: "Notes cannot exceed 5000 characters." });
+      }
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO roofs (
+         user_id,
+         roof_area_m2,
+         roof_material,
+         runoff_coefficient,
+         storage_tank_litres,
+         notes
+       ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        req.user.user_id,
+        areaResult.value === undefined ? null : areaResult.value,
+        roofMaterial,
+        coefficientResult.value === undefined ? null : coefficientResult.value,
+        capacityResult.value === undefined ? null : capacityResult.value,
+        roofNotes,
+      ]
+    );
+
+    return res.status(201).json({
+      message: "Roof information saved successfully.",
+      roof_id: result.insertId,
+    });
+  })
+);
+
+app.put(
+  "/api/roofs/:id",
+  ...authenticated,
+  asyncRoute(async (req, res) => {
+    const roofId = req.params.id;
+    if (!isPositiveInteger(roofId)) {
+      return res.status(400).json({ error: "Please provide a valid roof ID." });
+    }
+
+    const existing = await query(
+      "SELECT roof_id, roof_area_m2, roof_material, runoff_coefficient, storage_tank_litres, notes FROM roofs WHERE roof_id = ? AND user_id = ? LIMIT 1",
+      [Number(roofId), req.user.user_id]
+    );
+
+    if (!existing.length) {
+      return res.status(404).json({ error: "Roof record not found." });
+    }
+
+    const current = existing[0];
+    const {
+      roof_area_m2,
+      roof_material,
+      runoff_coefficient,
+      storage_tank_litres,
+      notes,
+    } = req.body || {};
+
+    const areaResult = parseOptionalNonNegativeNumber(roof_area_m2, "Roof area");
+    if (areaResult.error) return res.status(400).json({ error: areaResult.error });
+    if (areaResult.value !== undefined && areaResult.value !== null && areaResult.value <= 0) {
+      return res.status(400).json({ error: "Roof area must be greater than zero when provided." });
+    }
+
+    const coefficientResult = parseOptionalNonNegativeNumber(runoff_coefficient, "Runoff coefficient");
+    if (coefficientResult.error) return res.status(400).json({ error: coefficientResult.error });
+    if (
+      coefficientResult.value !== undefined &&
+      coefficientResult.value !== null &&
+      (coefficientResult.value <= 0 || coefficientResult.value > 1)
+    ) {
+      return res.status(400).json({ error: "Runoff coefficient must be between 0 and 1." });
+    }
+
+    const capacityResult = parseStorageTankLitres(storage_tank_litres);
+    if (capacityResult.error) return res.status(400).json({ error: capacityResult.error });
+
+    let roofMaterial = current.roof_material;
+    if (roof_material !== undefined) {
+      if (roof_material === null || String(roof_material).trim() === "") {
+        roofMaterial = null;
+      } else if (typeof roof_material !== "string" || roof_material.trim().length > 100) {
+        return res.status(400).json({ error: "Roof material must be text of at most 100 characters." });
+      } else {
+        roofMaterial = roof_material.trim();
+      }
+    }
+
+    let roofNotes = current.notes;
+    if (notes !== undefined) {
+      if (notes === null || String(notes).trim() === "") {
+        roofNotes = null;
+      } else if (typeof notes !== "string") {
+        return res.status(400).json({ error: "Notes must be text." });
+      } else {
+        roofNotes = notes.trim();
+        if (roofNotes.length > 5000) {
+          return res.status(400).json({ error: "Notes cannot exceed 5000 characters." });
+        }
+      }
+    }
+
+    const nextArea = areaResult.value === undefined ? current.roof_area_m2 : areaResult.value;
+    const nextCoefficient = coefficientResult.value === undefined ? current.runoff_coefficient : coefficientResult.value;
+    const nextCapacity = capacityResult.value === undefined ? current.storage_tank_litres : capacityResult.value;
+
+    await db.query(
+      `UPDATE roofs
+       SET roof_area_m2 = ?, roof_material = ?, runoff_coefficient = ?, storage_tank_litres = ?, notes = ?
+       WHERE roof_id = ? AND user_id = ?`,
+      [
+        nextArea,
+        roofMaterial,
+        nextCoefficient,
+        nextCapacity,
+        roofNotes,
+        Number(roofId),
+        req.user.user_id,
+      ]
+    );
+
+    return res.json({ message: "Roof information updated successfully." });
   })
 );
 
@@ -801,12 +1025,13 @@ app.get(
       params.push(toResult.value);
     }
 
-    const results = await query(
-      `SELECT
+    const selectWithCategory = `
+      SELECT
          wr.record_id,
          wr.record_date,
          wr.record_type,
          wr.volume_litres,
+         wr.usage_category,
          wr.location_id,
          l.station_name,
          wr.notes,
@@ -815,9 +1040,35 @@ app.get(
        LEFT JOIN locations AS l
          ON wr.location_id = l.location_id
        WHERE ${conditions.join(" AND ")}
-       ORDER BY wr.record_date DESC, wr.record_id DESC`,
-      params
-    );
+       ORDER BY wr.record_date DESC, wr.record_id DESC`;
+
+    const selectWithoutCategory = `
+      SELECT
+         wr.record_id,
+         wr.record_date,
+         wr.record_type,
+         wr.volume_litres,
+         NULL AS usage_category,
+         wr.location_id,
+         l.station_name,
+         wr.notes,
+         wr.created_at
+       FROM water_records AS wr
+       LEFT JOIN locations AS l
+         ON wr.location_id = l.location_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY wr.record_date DESC, wr.record_id DESC`;
+
+    let results;
+    try {
+      results = await query(selectWithCategory, params);
+    } catch (error) {
+      if (error && error.code === "ER_BAD_FIELD_ERROR") {
+        results = await query(selectWithoutCategory, params);
+      } else {
+        throw error;
+      }
+    }
 
     res.json(results);
   })
@@ -837,6 +1088,7 @@ app.post(
       volume_litres,
       location_id,
       notes,
+      usage_category,
     } = req.body || {};
 
     if (!isValidDate(record_date)) {
@@ -862,6 +1114,32 @@ app.post(
     if (volumeResult.error) {
       return res.status(400).json({
         error: volumeResult.error,
+      });
+    }
+
+    let usageCategory = null;
+
+    if (record_type === "used") {
+      if (
+        typeof usage_category !== "string" ||
+        !WATER_USAGE_CATEGORIES.includes(usage_category.trim())
+      ) {
+        return res.status(400).json({
+          error:
+            "Usage category is required for used water records and must be one of: " +
+            WATER_USAGE_CATEGORIES.join(", ") +
+            ".",
+        });
+      }
+
+      usageCategory = usage_category.trim();
+    } else if (
+      usage_category !== undefined &&
+      usage_category !== null &&
+      String(usage_category).trim() !== ""
+    ) {
+      return res.status(400).json({
+        error: "Usage category applies only to used water records.",
       });
     }
 
@@ -910,25 +1188,61 @@ app.post(
       }
     }
 
-    const result = await db.query(
-      `INSERT INTO water_records (
-         user_id,
-         record_date,
-         record_type,
-         volume_litres,
-         location_id,
-         notes
-       )
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        req.user.user_id,
-        record_date,
-        record_type,
-        volumeResult.value,
-        locationId,
-        recordNotes,
-      ]
-    );
+    let result;
+    try {
+      result = await db.query(
+        `INSERT INTO water_records (
+           user_id,
+           record_date,
+           record_type,
+           volume_litres,
+           usage_category,
+           location_id,
+           notes
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.user.user_id,
+          record_date,
+          record_type,
+          volumeResult.value,
+          usageCategory,
+          locationId,
+          recordNotes,
+        ]
+      );
+    } catch (error) {
+      if (error && error.code === "ER_BAD_FIELD_ERROR") {
+        if (usageCategory !== null) {
+          return res.status(503).json({
+            error:
+              "Usage categories are not available in the database yet. Please run the safe schema migration and try again.",
+          });
+        }
+
+        result = await db.query(
+          `INSERT INTO water_records (
+             user_id,
+             record_date,
+             record_type,
+             volume_litres,
+             location_id,
+             notes
+           )
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            req.user.user_id,
+            record_date,
+            record_type,
+            volumeResult.value,
+            locationId,
+            recordNotes,
+          ]
+        );
+      } else {
+        throw error;
+      }
+    }
 
     return res.status(201).json({
       message: "Water record saved successfully.",
@@ -979,38 +1293,95 @@ app.get(
   "/api/dashboard/summary",
   ...authenticated,
   asyncRoute(async (req, res) => {
-    const results = await query(
-      `SELECT
-         (SELECT COUNT(*) FROM provinces) AS provinces,
-         (SELECT COUNT(*) FROM districts) AS districts,
-         (SELECT COUNT(*) FROM locations) AS locations,
-         (SELECT COUNT(*) FROM rainfall_monthly_2018)
-           AS rainfall_records,
-         (SELECT COUNT(DISTINCT year)
-          FROM rainfall_monthly_2018) AS years_available,
-         (SELECT COUNT(*)
-          FROM roofs
-          WHERE user_id = ?) AS user_roofs,
-         (SELECT COUNT(*)
-          FROM water_records
-          WHERE user_id = ?) AS user_water_records,
-         (SELECT COALESCE(SUM(volume_litres), 0)
-          FROM water_records
-          WHERE user_id = ? AND record_type = 'collected')
-           AS total_collected_litres,
-         (SELECT COALESCE(SUM(volume_litres), 0)
-          FROM water_records
-          WHERE user_id = ? AND record_type = 'used')
-           AS total_used_litres`,
-      [
-        req.user.user_id,
-        req.user.user_id,
-        req.user.user_id,
-        req.user.user_id,
-      ]
-    );
+    const userId = req.user.user_id;
 
-    res.json(results[0]);
+    const [summaryRows, roofRows, rainfallAvgRows] = await Promise.all([
+      query(
+        `SELECT
+           (SELECT COUNT(*) FROM provinces) AS provinces,
+           (SELECT COUNT(*) FROM districts) AS districts,
+           (SELECT COUNT(*) FROM locations) AS locations,
+           (SELECT COUNT(*) FROM rainfall_monthly_2018)
+             AS rainfall_records,
+           (SELECT COUNT(DISTINCT year)
+            FROM rainfall_monthly_2018) AS years_available,
+           (SELECT COUNT(*)
+            FROM roofs
+            WHERE user_id = ?) AS user_roofs,
+           (SELECT COUNT(*)
+            FROM water_records
+            WHERE user_id = ?) AS user_water_records,
+           (SELECT COALESCE(SUM(volume_litres), 0)
+            FROM water_records
+            WHERE user_id = ? AND record_type = 'collected')
+             AS total_collected_litres,
+           (SELECT COALESCE(SUM(volume_litres), 0)
+            FROM water_records
+            WHERE user_id = ? AND record_type = 'used')
+             AS total_used_litres`,
+        [userId, userId, userId, userId]
+      ),
+      query(
+        `SELECT roof_area_m2, runoff_coefficient
+         FROM roofs
+         WHERE user_id = ?`,
+        [userId]
+      ),
+      query(
+        `SELECT AVG(station_total) AS avg_annual_rainfall_mm
+         FROM (
+           SELECT location_id, SUM(rainfall_mm) AS station_total
+           FROM rainfall_monthly_2018
+           WHERE year = 2018
+           GROUP BY location_id
+         ) AS station_totals`
+      ),
+    ]);
+
+    const summary = summaryRows[0] || {};
+    const avgAnnualRainfall = Number(rainfallAvgRows[0]?.avg_annual_rainfall_mm);
+    const COLLECTION_EFFICIENCY = 0.9;
+
+    let estimatedCollectionLitres = null;
+    const hasRoofData = Array.isArray(roofRows) && roofRows.some((r) => {
+      const area = Number(String(r.roof_area_m2 ?? "").replace(/,/g, ""));
+      const coeff = Number(String(r.runoff_coefficient ?? "").replace(/,/g, ""));
+      return Number.isFinite(area) && area > 0 && Number.isFinite(coeff) && coeff > 0;
+    });
+
+    if (hasRoofData && Number.isFinite(avgAnnualRainfall) && avgAnnualRainfall > 0) {
+      estimatedCollectionLitres = roofRows.reduce((total, roof) => {
+        const area = Number(String(roof.roof_area_m2 ?? "").replace(/,/g, ""));
+        const coeff = Number(String(roof.runoff_coefficient ?? "").replace(/,/g, ""));
+        if (!Number.isFinite(area) || area <= 0 || !Number.isFinite(coeff) || coeff <= 0) {
+          return total;
+        }
+        return total + (area * avgAnnualRainfall * coeff * COLLECTION_EFFICIENCY);
+      }, 0);
+    }
+
+    const totalCollected = Number(summary.total_collected_litres || 0);
+    const totalUsed = Number(summary.total_used_litres || 0);
+
+    let selfSufficiencyPercent = null;
+    if (Number.isFinite(totalUsed) && totalUsed > 0 && Number.isFinite(totalCollected) && totalCollected >= 0) {
+      selfSufficiencyPercent = (totalCollected / totalUsed) * 100;
+    }
+
+    res.json({
+      ...summary,
+      estimated_collection_litres: estimatedCollectionLitres,
+      estimated_collection_basis:
+        estimatedCollectionLitres !== null
+          ? "Annual potential based on user roof area, runoff coefficient, 90% collection efficiency, and average 2018 station annual rainfall."
+          : null,
+      avg_annual_rainfall_mm_2018: Number.isFinite(avgAnnualRainfall) ? avgAnnualRainfall : null,
+      self_sufficiency_percent: selfSufficiencyPercent,
+      self_sufficiency_basis:
+        selfSufficiencyPercent !== null
+          ? "Total collected water / total used water × 100."
+          : null,
+    });
   })
 );
 
@@ -1063,6 +1434,8 @@ async function startServer() {
     await db.query("SELECT 1");
 
     console.log(`Connected to ${DB_NAME} database!`);
+
+    await ensureSafeSchemaMigrations();
 
     console.log("Allowed frontend origins:", ALLOWED_ORIGINS);
 
